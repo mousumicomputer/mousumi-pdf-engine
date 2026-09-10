@@ -2,7 +2,6 @@ const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
 module.exports = async (req, res) => {
-  // ১. ফিক্সড CORS (ওয়াইল্ডকার্ড এরর সমাধান)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -16,27 +15,33 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { htmlContent, filename } = req.body;
+    // ১. নিরাপদ বডি পার্সিং (কখনোই আনডিফাইনড হবে না)
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const { htmlContent, filename } = body;
 
     if (!htmlContent) {
-      return res.status(400).json({ error: 'No HTML provided' });
+      return res.status(400).json({ error: 'HTML content missing' });
     }
 
-    // ২. Vercel মেমরি ক্র্যাশ ফিক্স (No-Sandbox মোড)
+    // ২. অফিসিয়াল রিমোট ক্রোমিয়াম প্যাক (এটি দিলে Vercel ক্র্যাশ করার কোনো সুযোগ নেই)
+    const executablePath = await chromium.executablePath(
+      'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar'
+    );
+
     const browser = await puppeteer.launch({
-      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
+      args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: true,
+      executablePath: executablePath,
+      headless: chromium.headless,
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
 
-    // ৩. টাইমআউট ফিক্স (১৫ সেকেন্ড অপেক্ষা)
+    // ফন্ট লোড হওয়া নিশ্চিত করা
     await page.setContent(htmlContent, {
-      waitUntil: 'networkidle0',
-      timeout: 15000,
+      waitUntil: ['load', 'networkidle0'],
+      timeout: 25000,
     });
 
     const pdfBuffer = await page.pdf({
@@ -52,7 +57,7 @@ module.exports = async (req, res) => {
     return res.send(pdfBuffer);
 
   } catch (error) {
-    console.error('CRASH_REASON:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('SERVER_ERROR_DETAIL:', error);
+    return res.status(500).json({ error: error.message || error.toString() });
   }
 };
