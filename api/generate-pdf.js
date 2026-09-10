@@ -2,15 +2,13 @@ const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
 module.exports = async (req, res) => {
-  // CORS সেটআপ (যাতে আপনার ওয়েবসাইট থেকে কল করা যায়)
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // ১. ফিক্সড CORS (ওয়াইল্ডকার্ড এরর সমাধান)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
@@ -21,46 +19,40 @@ module.exports = async (req, res) => {
     const { htmlContent, filename } = req.body;
 
     if (!htmlContent) {
-      return res.status(400).json({ error: 'No HTML content provided' });
+      return res.status(400).json({ error: 'No HTML provided' });
     }
 
-    // ব্যাকগ্রাউন্ডে গুগল কোলাবের মতো হেডলেস ব্রাউজার চালু করা
+    // ২. Vercel মেমরি ক্র্যাশ ফিক্স (No-Sandbox মোড)
     const browser = await puppeteer.launch({
-      args: chromium.args,
+      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+      headless: true,
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
 
-    // Tiro Bangla ফন্ট ও সিএসএস সম্পূর্ণ লোড হওয়া পর্যন্ত অপেক্ষা করা
+    // ৩. টাইমআউট ফিক্স (১৫ সেকেন্ড অপেক্ষা)
     await page.setContent(htmlContent, {
-      waitUntil: ['load', 'networkidle0'],
+      waitUntil: 'networkidle0',
+      timeout: 15000,
     });
 
-    // আসল ভেক্টর A4 সাইজ পিডিএফ তৈরি
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: {
-        top: '10mm',
-        right: '10mm',
-        bottom: '10mm',
-        left: '10mm',
-      },
+      margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
     });
 
     await browser.close();
 
-    // ব্রাউজারে সরাসরি ফাইল পাঠিয়ে দেওয়া
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename || 'Statement.pdf'}"`);
-    res.send(pdfBuffer);
+    return res.send(pdfBuffer);
 
   } catch (error) {
-    console.error('PDF Error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('CRASH_REASON:', error);
+    return res.status(500).json({ error: error.message });
   }
 };
