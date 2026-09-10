@@ -15,7 +15,6 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // ১. নিরাপদ বডি পার্সিং (কখনোই আনডিফাইনড হবে না)
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const { htmlContent, filename } = body;
 
@@ -23,25 +22,20 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'HTML content missing' });
     }
 
-    // ২. অফিসিয়াল রিমোট ক্রোমিয়াম প্যাক (এটি দিলে Vercel ক্র্যাশ করার কোনো সুযোগ নেই)
-    const executablePath = await chromium.executablePath(
-      'https://github.com/Sparticuz/chromium/releases/download/v123.0.1/chromium-v123.0.1-pack.tar'
-    );
-
+    // প্যাকেজের ভেতর থাকা নিজস্ব ক্রোমিয়াম ব্যবহার করবে (জিরো ডাউনলোড)
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: executablePath,
+      executablePath: await chromium.executablePath(),
       headless: chromium.headless,
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
 
-    // ফন্ট লোড হওয়া নিশ্চিত করা
     await page.setContent(htmlContent, {
-      waitUntil: ['load', 'networkidle0'],
-      timeout: 25000,
+      waitUntil: 'networkidle0',
+      timeout: 30000,
     });
 
     const pdfBuffer = await page.pdf({
@@ -57,7 +51,7 @@ module.exports = async (req, res) => {
     return res.send(pdfBuffer);
 
   } catch (error) {
-    console.error('SERVER_ERROR_DETAIL:', error);
+    console.error('SERVER_ERROR:', error);
     return res.status(500).json({ error: error.message || error.toString() });
   }
 };
